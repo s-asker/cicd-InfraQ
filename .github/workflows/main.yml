@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  Build and Test:
+  Build_and_Test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -27,7 +27,7 @@ jobs:
       - name: Test
         run: npm test
 
-  Deploy to AKS:
+  Deploy_to_AKS:
     runs-on: ubuntu-latest
     steps:
       - name: Azure Login
