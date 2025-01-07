@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import ReactFlow, { Controls, useNodesState, useEdgesState, addEdge } from 'reactflow';
 import 'reactflow/dist/style.css';
 
@@ -23,14 +23,15 @@ const Canvas = () => {
 
       setNodes((nds) => nds.concat(newNode));
     },
-    [setNodes]
+    [setNodes] // Add setNodes as a dependency
   );
+
 
   const onNodeClick = useCallback(
     (event, node) => {
       setSelectedNode(node);
     },
-    []
+    [setSelectedNode] // Add setSelectedNode as a dependency
   );
 
   const onConnect = useCallback(
@@ -65,10 +66,11 @@ const Canvas = () => {
         console.log('Invalid connection:', params); // Debugging line
       }
     },
-    [nodes]
+    [nodes, setNodes, setEdges] // Add setNodes and setEdges as dependencies
   );
 
   const handleConfigChange = (key, value) => {
+    if (!selectedNode) return; // Check if selectedNode is null
     const updatedNode = {
       ...selectedNode,
       data: {
@@ -84,6 +86,7 @@ const Canvas = () => {
   };
 
   const handleDeleteNode = () => {
+    if (!selectedNode) return; // Check if selectedNode is null
     setNodes((nds) => nds.filter((n) => n.id !== selectedNode.id));
     setEdges((eds) => eds.filter((e) => e.source !== selectedNode.id && e.target !== selectedNode.id));
     setSelectedNode(null);
