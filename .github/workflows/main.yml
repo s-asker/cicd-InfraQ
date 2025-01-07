@@ -52,6 +52,8 @@ jobs:
       - name: Deploy to AKS
         run: |
           az aks get-credentials --resource-group KubeRG --name myAKSCluster
-          helm upgrade --install web-app ./web-app
+          helm upgrade --install web-app ./web-app \
+            --set image.repository=${{ secrets.REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }} \
+            --set image.tag=${{ github.sha }}
 
 
