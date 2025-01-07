@@ -25,11 +25,13 @@ jobs:
         run: npm run build --if-present
 
       - name: Test
-        run: npm test
+        run: npm test # if you have testing implemented in your project
 
   Deploy_to_AKS:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
       - name: Azure Login
         uses: azure/login@v2
         with:
