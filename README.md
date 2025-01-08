@@ -292,29 +292,30 @@ Here are some screenshots from the project to help you visualize the setup:
 
 ---
 
-### 13. Grafana Dashboard Configuration
+### 13. Configure Azure Monitor Data Source
+![Configure Azure Monitor Data Source](images/Screenshot_2025-01-07_172009.png)
+*Adding Azure Monitor as a data source in Grafana for advanced metrics collection.*
+
+---
+
+### 14. Grafana Dashboard Configuration
 ![Grafana Dashboard Configuration](images/Screenshot_2025-01-07_171920.png)
 *Configuring a Grafana dashboard to visualize AKS cluster metrics like CPU usage and pod count.*
 
 ---
 
-### 14. Grafana Query Editor
+### 15. Grafana Query Editor
 ![Grafana Query Editor](images/Screenshot_2025-01-07_171927.png)
 *Editing queries in Grafana to customize metrics visualization.*
 
 ---
 
-### 15. Grafana Metrics Visualization
+### 16. Grafana Metrics Visualization
 ![Grafana Metrics Visualization](images/Screenshot_2025-01-07_171937.png)
 *Visualizing AKS cluster metrics like CPU usage and pod count in Grafana.*
 
 ---
 
-### 16. Configure Azure Monitor Data Source
-![Configure Azure Monitor Data Source](images/Screenshot_2025-01-07_172009.png)
-*Adding Azure Monitor as a data source in Grafana for advanced metrics collection.*
-
----
 
 ### 17. Kubernetes Services Overview
 ![Kubernetes Services Overview](images/Screenshot_2025-01-07_165918.png)
