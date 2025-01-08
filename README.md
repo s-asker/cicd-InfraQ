@@ -52,118 +52,174 @@ The CI/CD pipeline is defined in the [`.github/workflows/main.yaml`](.github/wor
 
 ### Step 1: Set Up Azure Resources
 1. **Create an AKS Cluster**:
-    - Use the Azure CLI to create a Kubernetes cluster:
-      ```bash
-      az aks create --resource-group KubeRG --name myAKSCluster --node-count 2 --enable-addons monitoring --generate-ssh-keys
-      ```
-    - Verify the cluster creation:
-      ```bash
-      az aks list -o table
-      ```
+   - Use the Azure CLI to create a Kubernetes cluster:
+     ```bash
+     az aks create --resource-group KubeRG --name myAKSCluster --node-count 2 --enable-addons monitoring --generate-ssh-keys
+     ```
+   - Verify the cluster creation:
+     ```bash
+     az aks list -o table
+     ```
 
 2. **Create an Azure Container Registry (ACR)**:
-    - Create an ACR to store Docker images:
-      ```bash
-      az acr create --resource-group KubeRG --name infraqregistry --sku Basic
-      ```
+   - Create an ACR to store Docker images:
+     ```bash
+     az acr create --resource-group KubeRG --name infraqregistry --sku Basic
+     ```
 
 3. **Attach ACR to AKS**:
-    - Link the ACR to your AKS cluster:
-      ```bash
-      az aks update --name myAKSCluster --resource-group KubeRG --attach-acr infraqregistry
-      ```
+   - Link the ACR to your AKS cluster:
+     ```bash
+     az aks update --name myAKSCluster --resource-group KubeRG --attach-acr infraqregistry
+     ```
 
 ---
 
-### Step 2: Set Up GitHub Actions
+### Step 2: Set Up Service Principal for GitHub Actions
+1. **Create a Service Principal**:
+   - A service principal is required for GitHub Actions to authenticate with Azure. Create one using the Azure CLI:
+     ```bash
+     az ad sp create-for-rbac --name "github-actions-sp" --role contributor \
+       --scopes /subscriptions/<subscription-id>/resourceGroups/KubeRG \
+       --sdk-auth
+     ```
+   - Replace `<subscription-id>` with your Azure subscription ID.
+   - This command outputs a JSON object with the service principal credentials. Save this output securely.
+
+2. **Add Service Principal to GitHub Secrets**:
+   - Go to your GitHub repository settings and add the following secrets:
+      - `AZURE_CREDENTIALS`: Paste the entire JSON output from the service principal creation command.
+      - `REGISTRY_NAME`: The name of your Azure Container Registry (e.g., `infraqregistry`).
+      - `IMAGE_NAME`: The name of the Docker image (e.g., `web-app`).
+      - `SP_USERNAME`: The `clientId` from the JSON output.
+      - `SP_PASSWORD`: The `clientSecret` from the JSON output.
+
+---
+
+### Step 3: Get AKS Cluster Credentials
+1. **Fetch AKS Cluster Credentials**:
+   - To interact with your AKS cluster using `kubectl`, fetch the cluster credentials:
+     ```bash
+     az aks get-credentials --resource-group KubeRG --name myAKSCluster
+     ```
+   - This command updates your local `kubeconfig` file, allowing you to run `kubectl` commands against the cluster.
+
+2. **Verify Cluster Access**:
+   - Test your access to the AKS cluster:
+     ```bash
+     kubectl get nodes
+     ```
+   - This should list the nodes in your AKS cluster.
+
+---
+
+### Step 4: Set Up GitHub Actions
 1. **Create a GitHub Workflow**:
-    - Add the following workflow to `.github/workflows/main.yaml`:
-      ```yaml
-      name: CI/CD Pipeline on AKS
- 
-      on:
-        push:
-          branches:
-            - main
-        workflow_dispatch:
- 
-      jobs:
-        Build_and_Test:
-          runs-on: ubuntu-latest
-          steps:
-            - name: Checkout repository
-              uses: actions/checkout@v2
- 
-            - name: Set up Node.js
-              uses: actions/setup-node@v2
-              with:
-                node-version: '23.5'
- 
-            - name: Install dependencies
-              run: npm install
- 
-            - name: Build
-              run: npm run build --if-present
- 
-            - name: Test
-              run: npm test # if you have testing implemented in your project
- 
-        Deploy_to_AKS:
-          runs-on: ubuntu-latest
-          steps:
-            - name: Checkout repository
-              uses: actions/checkout@v2
- 
-            - name: Azure Login
-              uses: azure/login@v2
-              with:
-                creds: ${{ secrets.AZURE_CREDENTIALS }}
- 
-            - name: Azure ACR Login
-              uses: azure/docker-login@v2
-              with:
-                login-server: ${{ secrets.REGISTRY_NAME }}
-                username: ${{ secrets.SP_USERNAME }}
-                password: ${{ secrets.SP_PASSWORD }}
- 
-            - name: Build and Push Docker file
-              run: |
-                docker build -t ${{ secrets.REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }} .
-                docker push ${{ secrets.REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
-            - name: Deploy to AKS
-              run: |
-                az aks get-credentials --resource-group KubeRG --name myAKSCluster
-                helm upgrade --install web-app ./web-app \
-                  --set image.repository=${{ secrets.REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }} \
-                  --set image.tag=${{ github.sha }}
-      ```
+   - Add the following workflow to `.github/workflows/main.yaml`:
+     ```yaml
+     name: CI/CD Pipeline on AKS
 
-2. **Add GitHub Secrets**:
-    - Go to your repository settings and add the following secrets:
-        - `AZURE_CREDENTIALS`: Azure service principal credentials.
-        - `REGISTRY_NAME`: Name of your Azure Container Registry (ACR).
-        - `IMAGE_NAME`: Name of the Docker image.
-        - `SP_USERNAME`: Service principal username.
-        - `SP_PASSWORD`: Service principal password.
+     on:
+       push:
+         branches:
+           - main
+       workflow_dispatch:
+
+     jobs:
+       Build_and_Test:
+         runs-on: ubuntu-latest
+         steps:
+           - name: Checkout repository
+             uses: actions/checkout@v2
+
+           - name: Set up Node.js
+             uses: actions/setup-node@v2
+             with:
+               node-version: '23.5'
+
+           - name: Install dependencies
+             run: npm install
+
+           - name: Build
+             run: npm run build --if-present
+
+           - name: Test
+             run: npm test # if you have testing implemented in your project
+
+       Deploy_to_AKS:
+         runs-on: ubuntu-latest
+         steps:
+           - name: Checkout repository
+             uses: actions/checkout@v2
+
+           - name: Azure Login
+             uses: azure/login@v2
+             with:
+               creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+           - name: Azure ACR Login
+             uses: azure/docker-login@v2
+             with:
+               login-server: ${{ secrets.REGISTRY_NAME }}
+               username: ${{ secrets.SP_USERNAME }}
+               password: ${{ secrets.SP_PASSWORD }}
+
+           - name: Build and Push Docker file
+             run: |
+               docker build -t ${{ secrets.REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }} .
+               docker push ${{ secrets.REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }}:${{ github.sha }}
+           - name: Deploy to AKS
+             run: |
+               az aks get-credentials --resource-group KubeRG --name myAKSCluster
+               helm upgrade --install web-app ./web-app \
+                 --set image.repository=${{ secrets.REGISTRY_NAME }}/${{ secrets.IMAGE_NAME }} \
+                 --set image.tag=${{ github.sha }}
+     ```
 
 ---
 
-### Step 3: Deploy the Application
+### Step 5: Deploy the Application
 1. **Push Code to GitHub**:
-    - Push your code to the `main` branch to trigger the pipeline:
-      ```bash
-      git add .
-      git commit -m "Initial commit: Added React app code"
-      git push origin main
-      ```
+   - Push your code to the `main` branch to trigger the pipeline:
+     ```bash
+     git add .
+     git commit -m "Initial commit: Added React app code"
+     git push origin main
+     ```
 
 2. **Verify Deployment**:
-    - Check the status of the deployment in the **GitHub Actions** tab.
-    - Verify the app is running in AKS:
-      ```bash
-      kubectl get pods
-      kubectl get services
-      ```
+   - Check the status of the deployment in the **GitHub Actions** tab.
+   - Verify the app is running in AKS:
+     ```bash
+     kubectl get pods
+     kubectl get services
+     ```
+
+---
+
+### Step 6: Monitoring with Grafana
+1. **Install Grafana using Helm**:
+   - Add the Grafana Helm repository:
+     ```bash
+     helm repo add grafana https://grafana.github.io/helm-charts
+     helm repo update
+     ```
+   - Install Grafana in the `monitoring` namespace:
+     ```bash
+        kubectl create namespace monitoring
+     helm install grafana grafana/grafana --namespace monitoring
+     ```
+
+2. **Access Grafana**:
+   - Get the Grafana admin password:
+     ```bash
+     kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+     ```
+   - Forward the Grafana service to your local machine:
+     ```bash
+     kubectl port-forward --namespace monitoring $POD_NAME 3000
+     ```
+   - Open Grafana in your browser at `http://localhost:3000` and log in using the username `admin` and the password retrieved above.
 
 ---
 
