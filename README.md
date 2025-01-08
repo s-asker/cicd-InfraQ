@@ -206,7 +206,7 @@ The CI/CD pipeline is defined in the [`.github/workflows/main.yaml`](.github/wor
      ```
    - Install Grafana in the `monitoring` namespace:
      ```bash
-        kubectl create namespace monitoring
+     kubectl create namespace monitoring
      helm install grafana grafana/grafana --namespace monitoring
      ```
 
