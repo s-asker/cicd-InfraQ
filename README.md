@@ -167,79 +167,34 @@ The CI/CD pipeline is defined in the [`.github/workflows/main.yaml`](.github/wor
 
 ---
 
-## Monitoring with Grafana
-
-### Step 1: Install Grafana
-1. **Install Grafana using Helm**:
-    - Add the Grafana Helm repository:
-      ```bash
-      helm repo add grafana https://grafana.github.io/helm-charts
-      helm repo update
-      ```
-    - Install Grafana in the `monitoring` namespace:
-      ```bash
-      helm install grafana grafana/grafana --namespace monitoring
-      ```
-
-2. **Access Grafana**:
-    - Get the Grafana admin password:
-      ```bash
-      kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
-      ```
-    - Forward the Grafana service to your local machine:
-      ```bash
-      kubectl port-forward --namespace monitoring service/grafana 3000:80
-      ```
-    - Open Grafana in your browser at `http://localhost:3000` and log in using the username `admin` and the password retrieved above.
-
----
-
-### Step 2: Configure Azure Monitor
-1. **Add Azure Monitor as a Data Source**:
-    - In Grafana, go to **Configuration > Data Sources**.
-    - Click **Add data source** and select **Azure Monitor**.
-    - Fill in the required fields:
-        - **Name**: `Azure Monitor`
-        - **Subscription ID**: Your Azure subscription ID.
-        - **Tenant ID**: Your Azure tenant ID.
-        - **Client ID**: The client ID of your Azure service principal.
-        - **Client Secret**: The client secret of your Azure service principal.
-    - Click **Save & Test** to verify the connection.
-
-2. **Create Dashboards**:
-    - Go to **Dashboards > New Dashboard**.
-    - Add panels to visualize metrics such as:
-        - **CPU Usage**: Monitor the CPU usage of your AKS cluster.
-        - **Memory Usage**: Track memory consumption.
-        - **Number of Pods**: Visualize the number of running pods.
-    - Save the dashboard for future use.
-
----
-
 ## Screenshots
 
 Here are some screenshots from the project to help you visualize the setup:
 
 ### 1. Create Resource Group and AKS Cluster
 ![Create Resource Group and AKS Cluster](images/Screenshot_2025-01-07_123154.png)
+
 *Creating the resource group `KubeRG` and AKS cluster `myAKSCluster` using Azure CLI.*
 
 ---
 
 ### 2. AKS Cluster Creation Confirmation
 ![AKS Cluster Creation Confirmation](images/Screenshot_2025-01-07_123223.png)
+
 *Confirmation of the AKS cluster creation with details like resource group, location, and provisioning state.*
 
 ---
 
 ### 3. Create Azure Container Registry (ACR)
 ![Create Azure Container Registry](images/Screenshot_2025-01-07_124145.png)
+
 *Creating the Azure Container Registry (ACR) named `infraqregistry` to store Docker images.*
 
 ---
 
 ### 4. Attach ACR to AKS Cluster
 ![Attach ACR to AKS Cluster](images/Screenshot_2025-01-07_125253.png)
+
 *Attaching the ACR to the AKS cluster to enable seamless image pulls during deployment.*
 
 ---
@@ -253,78 +208,91 @@ Here are some screenshots from the project to help you visualize the setup:
 
 ### 6. Verify Kubernetes Resources
 ![Verify Kubernetes Resources](images/Screenshot_2025-01-07_164559.png)
+
 *Checking the running pods and services in the AKS cluster after deployment.*
 
 ---
 
 ### 7. Create Monitoring Namespace
 ![Create Monitoring Namespace](images/Screenshot_2025-01-07_165559.png)
+
 *Creating the `monitoring` namespace for Grafana and Prometheus installation.*
 
 ---
 
 ### 8. Install Grafana using Helm
 ![Install Grafana using Helm](images/Screenshot_2025-01-07_165611.png)
+
 *Installing Grafana in the `monitoring` namespace using Helm.*
 
 ---
 
 ### 9. Grafana Deployment Status
 ![Grafana Deployment Status](images/Screenshot_2025-01-07_165645.png)
+
 *Grafana successfully deployed with instructions to access the admin password and URL.*
 
 ---
 
 ### 10. Port Forward Grafana Service
 ![Port Forward Grafana Service](images/Screenshot_2025-01-07_170438.png)
+
 *Forwarding the Grafana service to access it locally on port 3000.*
 
 ---
 
 ### 11. Grafana Login Page
 ![Grafana Login Page](images/Screenshot_2025-01-07_170921.png)
+
 *Grafana login page accessed via port forwarding.*
 
 ---
 
 ### 12. Enable Monitoring Add-ons for AKS
 ![Enable Monitoring Add-ons for AKS](images/Screenshot_2025-01-07_171220.png)
+
 *Enabling monitoring add-ons for the AKS cluster to collect metrics.*
 
 ---
 
-### 13. Configure Azure Monitor Data Source
-![Configure Azure Monitor Data Source](images/Screenshot_2025-01-07_172009.png)
-*Adding Azure Monitor as a data source in Grafana for advanced metrics collection.*
-
----
-
-### 14. Grafana Dashboard Configuration
+### 13. Grafana Dashboard Configuration
 ![Grafana Dashboard Configuration](images/Screenshot_2025-01-07_171920.png)
+
 *Configuring a Grafana dashboard to visualize AKS cluster metrics like CPU usage and pod count.*
 
 ---
 
-### 15. Grafana Query Editor
+### 14. Grafana Query Editor
 ![Grafana Query Editor](images/Screenshot_2025-01-07_171927.png)
+
 *Editing queries in Grafana to customize metrics visualization.*
 
 ---
 
-### 16. Grafana Metrics Visualization
+### 15. Grafana Metrics Visualization
 ![Grafana Metrics Visualization](images/Screenshot_2025-01-07_171937.png)
+
 *Visualizing AKS cluster metrics like CPU usage and pod count in Grafana.*
 
 ---
 
+### 16. Configure Azure Monitor Data Source
+![Configure Azure Monitor Data Source](images/Screenshot_2025-01-07_172009.png)
+
+*Adding Azure Monitor as a data source in Grafana for advanced metrics collection.*
+
+---
 
 ### 17. Kubernetes Services Overview
 ![Kubernetes Services Overview](images/Screenshot_2025-01-07_165918.png)
+
 *Overview of Kubernetes services running in the cluster, including the React app service.*
+
 ---
 
 ### 18. Terraform Code Generation
 ![Terraform Code Generation](images/Screenshot_2025-01-07_172356.png)
+
 *React web application that generates Terraform code for infrastructure as code (IaC) setup.*
 
 ---
