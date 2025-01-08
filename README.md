@@ -316,16 +316,17 @@ Here are some screenshots from the project to help you visualize the setup:
 
 ---
 
-### 17. Terraform Code Generation
-![Terraform Code Generation](images/Screenshot_2025-01-07_172356.png)
-*Generating Terraform code for infrastructure as code (IaC) setup.*
-
----
-
-### 18. Kubernetes Services Overview
+### 17. Kubernetes Services Overview
 ![Kubernetes Services Overview](images/Screenshot_2025-01-07_165918.png)
 *Overview of Kubernetes services running in the cluster, including the React app service.*
 ---
+
+### 18. Terraform Code Generation
+![Terraform Code Generation](images/Screenshot_2025-01-07_172356.png)
+*React web application that generates Terraform code for infrastructure as code (IaC) setup.*
+
+---
+
 
 ## License
 
