@@ -209,12 +209,14 @@ Here are some screenshots from the project to help you visualize the setup:
 ### 6. Verify Kubernetes Resources
 ![Verify Kubernetes Resources](images/Screenshot_2025-01-07_164559.png)
 
+
 *Checking the running pods and services in the AKS cluster after deployment.*
 
 ---
 
 ### 7. Create Monitoring Namespace
 ![Create Monitoring Namespace](images/Screenshot_2025-01-07_165559.png)
+
 
 *Creating the `monitoring` namespace for Grafana and Prometheus installation.*
 
