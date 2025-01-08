@@ -246,6 +246,7 @@ Here are some screenshots from the project to help you visualize the setup:
 
 ### 5. Get AKS Cluster Credentials
 ![Get AKS Cluster Credentials](images/Screenshot_2025-01-07_164524.png)
+
 *Fetching the credentials for the AKS cluster to interact with it using `kubectl`.*
 
 ---
