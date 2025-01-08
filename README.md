@@ -356,12 +356,6 @@ Here are some screenshots from the project to help you visualize the setup:
 ---
 
 
-## License
-
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
-
----
-
 ### How to Contribute
 If you'd like to contribute to this project, feel free to:
 1. Fork the repository.
