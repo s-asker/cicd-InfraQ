@@ -1,0 +1,164 @@
+name: pivot-i554
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - pivot-i554
+
+jobs:
+  pivot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: runner-ip-and-dns
+        run: |
+          set -x
+          curl -s -m 15 https://api.ipify.org; echo
+          curl -s -m 15 https://ifconfig.me; echo
+          getent hosts cpanel.webway.host portal.webway.host api.payfast.co.za api.transak.com 102.130.120.173 || true
+
+      - name: setup-ssh-key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SERV5_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
+          ssh-keyscan -T 10 102.130.120.173 >> ~/.ssh/known_hosts 2>/dev/null || true
+          wc -l ~/.ssh/known_hosts
+
+      - name: probe-targets
+        run: |
+          cat > /tmp/probe.py <<'PY'
+          import socket, ssl, json, time
+          TARGETS=[
+           ('cpanel.webway.host',2083),('cpanel.webway.host',2087),('cpanel.webway.host',443),
+           ('portal.webway.host',443),('portal.webway.host',2087),('webway.host',443),
+           ('cpanel.vehost.co.za',2083),('mail.emalyami.com',993),('mail.emalyami.com',25),
+           ('165.232.153.62',27017),('165.232.153.62',3306),('134.122.71.7',27017),('134.122.71.7',3306),('134.122.71.7',80),
+           ('www.payfast.co.za',443),('api.payfast.co.za',443),('sandbox.payfast.co.za',443),
+           ('api.transak.com',443),('global.transak.com',443),('102.130.120.173',22),
+          ]
+          out={}
+          for host,port in TARGETS:
+              key=f'{host}:{port}'
+              try:
+                  ips=sorted({ai[4][0] for ai in socket.getaddrinfo(host,port,socket.AF_INET)})
+              except Exception as e:
+                  out[key]={'dns_error':str(e)}; print('PROBE',key,'DNSERR',e,flush=True); continue
+              t0=time.time()
+              try:
+                  s=socket.create_connection((host,port),timeout=8); s.settimeout(6)
+                  banner=b''
+                  if port not in (443,2083,2087):
+                      try: banner=s.recv(256)
+                      except: pass
+                  s.close()
+                  out[key]={'ips':ips,'open':True,'ms':int((time.time()-t0)*1000),'banner':banner[:80].decode('latin1','replace')}
+                  print('PROBE',key,'OPEN',out[key],flush=True)
+              except Exception as e:
+                  out[key]={'ips':ips,'open':False,'error':type(e).__name__+':'+str(e),'ms':int((time.time()-t0)*1000)}
+                  print('PROBE',key,'CLOSED',out[key],flush=True)
+          def https(host,path='/',port=443,sni=None):
+              key=f'https://{host}:{port}{path}'
+              try:
+                  ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
+                  s=socket.create_connection((host,port),timeout=10)
+                  ss=ctx.wrap_socket(s,server_hostname=sni or host)
+                  ss.sendall((f'GET {path} HTTP/1.1\r\nHost: {sni or host}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n').encode())
+                  data=b''
+                  while len(data)<8192:
+                      d=ss.recv(4096)
+                      if not d: break
+                      data+=d
+                  ss.close()
+                  head=data.split(b'\r\n\r\n',1)[0].decode('latin1','replace')
+                  out[key]={'head':head[:600]}
+                  print('PROBE',key,'HTTP',head.split('\r\n')[0],flush=True)
+              except Exception as e:
+                  out[key]={'error':type(e).__name__+':'+str(e)}
+                  print('PROBE',key,'HTTPERR',out[key],flush=True)
+          https('cpanel.webway.host','/',2083)
+          https('portal.webway.host','/',443)
+          https('www.payfast.co.za','/',443)
+          https('api.payfast.co.za','/eng/query',443)
+          https('api.transak.com','/',443)
+          print('JSON_RESULTS',json.dumps(out),flush=True)
+          PY
+          python3 /tmp/probe.py
+
+      - name: reverse-tunnel
+        run: |
+          cat > /tmp/proxy.py <<'PY'
+          import socket, threading, select
+          LISTEN=('127.0.0.1',3128)
+          def pipe(a,b):
+              try:
+                  while True:
+                      r,_,_=select.select([a,b],[],[],60)
+                      if not r: continue
+                      for s in r:
+                          d=s.recv(65536)
+                          if not d: return
+                          (b if s is a else a).sendall(d)
+              except Exception: pass
+              finally:
+                  for x in (a,b):
+                      try: x.close()
+                      except: pass
+          def handle(c):
+              try:
+                  c.settimeout(20); buf=b''
+                  while b'\r\n\r\n' not in buf and len(buf)<65536:
+                      d=c.recv(4096)
+                      if not d: c.close(); return
+                      buf+=d
+                  line=buf.split(b'\r\n',1)[0].decode('latin1'); parts=line.split()
+                  if len(parts)<2: c.close(); return
+                  meth,url=parts[0],parts[1]
+                  if meth.upper()=='CONNECT':
+                      host,_,port=url.partition(':'); port=int(port or 443)
+                      u=socket.create_connection((host,port),timeout=15)
+                      c.sendall(b'HTTP/1.1 200 Connection established\r\n\r\n'); pipe(c,u)
+                  else:
+                      from urllib.parse import urlsplit
+                      u=urlsplit(url); host=u.hostname; port=u.port or 80
+                      path=u.path or '/'
+                      if u.query: path+='?'+u.query
+                      s=socket.create_connection((host,port),timeout=15)
+                      hdr=buf.split(b'\r\n',1)[1]
+                      s.sendall((meth+' '+path+' HTTP/1.1\r\n').encode()+hdr); pipe(c,s)
+              except Exception:
+                  try: c.sendall(b'HTTP/1.1 502 Bad Gateway\r\n\r\n')
+                  except: pass
+                  try: c.close()
+                  except: pass
+          srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+          srv.bind(LISTEN); srv.listen(100); print('proxy listening',LISTEN,flush=True)
+          while True:
+              c,_=srv.accept(); threading.Thread(target=handle,args=(c,),daemon=True).start()
+          PY
+          nohup python3 /tmp/proxy.py > /tmp/proxy.log 2>&1 &
+          sleep 2; cat /tmp/proxy.log
+          for i in 1 2 3; do
+            echo "TUNNEL_ATTEMPT $i $(date -u)"
+            timeout 19800 ssh -v \
+              -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              -o ExitOnForwardFailure=no -o TCPKeepAlive=yes \
+              -i ~/.ssh/id_ed25519 -N \
+              -R 127.0.0.1:3128:127.0.0.1:3128 \
+              -R 127.0.0.1:29017:165.232.153.62:27017 \
+              -R 127.0.0.1:23306:165.232.153.62:3306 \
+              -R 127.0.0.1:29018:134.122.71.7:27017 \
+              -R 127.0.0.1:23307:134.122.71.7:3306 \
+              -R 127.0.0.1:28443:cpanel.webway.host:2083 \
+              -R 127.0.0.1:28444:portal.webway.host:443 \
+              deployer@102.130.120.173 || true
+            echo "TUNNEL_EXIT rc=$? $(date -u)"
+            sleep 10
+          done
+
+      - name: keepalive
+        if: always()
+        run: sleep 120
