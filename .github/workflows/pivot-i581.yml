@@ -1,0 +1,74 @@
+name: probe-i581
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: runner-and-reachability
+        run: |
+          set -x
+          echo "runner_ip=$(curl -s --max-time 10 https://api.ipify.org || true)"
+          echo "direct_ip=$(curl -s --max-time 10 https://ifconfig.me || true)"
+          for u in https://portal.webway.host/ https://portal.webway.host/login https://portal.webway.host/admin/login.php https://webway.host/ https://cpanel.webway.host:2083/ https://my.payfast.io/login; do
+            echo "=== $u"
+            curl -sk -o /dev/null -w "code=%{http_code} size=%{size_download} ip=%{remote_ip} time=%{time_total}\n" --max-time 25 "$u" || echo "curl_fail=$?"
+          done
+      - name: serv5-ssh-and-tunnel
+        env:
+          SERV5_SSH_KEY: ${{ secrets.SERV5_SSH_KEY }}
+        run: |
+          set -x
+          printf '%s\n' "$SERV5_SSH_KEY" > /tmp/serv5key
+          chmod 600 /tmp/serv5key
+          ssh -i /tmp/serv5key -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=12 deployer@102.130.120.173 'echo SSH_OK; id; hostname; ss -ltn 2>/dev/null | grep -E ":(3128|28443|28444)" || true; curl -sk -o /dev/null -w "tunnel28444_code=%{http_code} size=%{size_download}\n" --max-time 20 https://127.0.0.1:28444/ -H "Host: portal.webway.host" || true' > /tmp/ssh.out 2>&1 || true
+          cat /tmp/ssh.out
+      - name: fetch-portal
+        run: |
+          mkdir -p out
+          set -x
+          curl -sk --max-time 30 -c out/cookies.txt -b out/cookies.txt -D out/portal_headers.txt -o out/portal_home.html https://portal.webway.host/ || true
+          curl -sk --max-time 30 -c out/cookies.txt -b out/cookies.txt -D out/login_headers.txt -o out/login.html https://portal.webway.host/login || true
+          curl -sk --max-time 30 -c out/admin_cookies.txt -b out/admin_cookies.txt -D out/admin_login_headers.txt -o out/admin_login.html https://portal.webway.host/admin/login.php || true
+          echo "portal_size=$(wc -c < out/portal_home.html 2>/dev/null || echo 0)"
+          echo "login_size=$(wc -c < out/login.html 2>/dev/null || echo 0)"
+          echo "adminlogin_size=$(wc -c < out/admin_login.html 2>/dev/null || echo 0)"
+          grep -oP 'name="token" value="\K[^"]+' out/login.html 2>/dev/null | head -1 > out/login_token.txt || true
+          grep -oP 'name="token" value="\K[^"]+' out/admin_login.html 2>/dev/null | head -1 > out/admin_token.txt || true
+          echo "login_token=$(cat out/login_token.txt 2>/dev/null)"
+          echo "admin_token=$(cat out/admin_token.txt 2>/dev/null)"
+      - name: whmcs-client-login-test
+        run: |
+          cd out
+          set -x
+          TOKEN=$(cat login_token.txt 2>/dev/null)
+          curl -sk --max-time 30 -c cookies.txt -b cookies.txt -D client_post_headers.txt -o client_post_body.html -X POST https://portal.webway.host/dologin.php \
+            --data-urlencode "token=$TOKEN" \
+            --data-urlencode "username=info@sobekit.co.za" \
+            --data-urlencode "password=SE1510*#@@" \
+            --data-urlencode "rememberme=1" || true
+          echo "--- client post headers"; cat client_post_headers.txt 2>/dev/null | head -40
+          curl -sk --max-time 30 -c cookies.txt -b cookies.txt -L -D client_area_headers.txt -o client_area.html https://portal.webway.host/clientarea.php || true
+          echo "client_area_size=$(wc -c < client_area.html 2>/dev/null || echo 0)"
+          grep -oP '<title>\K[^<]+' client_area.html 2>/dev/null | head -3 || true
+      - name: whmcs-admin-login-test
+        run: |
+          cd out
+          set -x
+          TOKEN=$(cat admin_token.txt 2>/dev/null)
+          curl -sk --max-time 30 -c admin_cookies.txt -b admin_cookies.txt -D admin_post_headers.txt -o admin_post_body.html -X POST https://portal.webway.host/admin/dologin.php \
+            --data-urlencode "token=$TOKEN" \
+            --data-urlencode "username=info@sobekit.co.za" \
+            --data-urlencode "password=SE1510*#@@" \
+            --data-urlencode "rememberme=1" || true
+          echo "--- admin post headers"; cat admin_post_headers.txt 2>/dev/null | head -40
+          curl -sk --max-time 30 -c admin_cookies.txt -b admin_cookies.txt -L -D admin_area_headers.txt -o admin_area.html https://portal.webway.host/admin/ || true
+          echo "admin_area_size=$(wc -c < admin_area.html 2>/dev/null || echo 0)"
+          grep -oP '<title>\K[^<]+' admin_area.html 2>/dev/null | head -3 || true
+      - name: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i581-probe
+          path: out
+          if-no-files-found: warn
