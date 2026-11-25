@@ -1,0 +1,32 @@
+name: i598-payfast-takeover
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  payfast-takeover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: install deps
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check requests
+          python3 -c "import requests; print('requests', requests.__version__)"
+
+      - name: execute payfast takeover harness
+        run: |
+          python3 i598_attack.py
+
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i598-results
+          path: out/
+          retention-days: 30
